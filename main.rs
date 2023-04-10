@@ -6,4 +6,29 @@
 // To run the code:
 //     $ cargo run
 
-fn main() {}
+use derive_debug::CustomDebug;
+use std::fmt::Debug;
+
+pub trait Trait {
+    type Value;
+}
+
+#[derive(CustomDebug)]
+#[debug(bound = "T::Value: Debug")]
+
+pub struct Field<T: Trait> {
+    values: Vec<T::Value>,
+}
+
+fn assert_debug<F: Debug>() {}
+
+fn main() {
+    // Does not implement Debug, but its associated type does.
+    struct Id;
+
+    impl Trait for Id {
+        type Value = u8;
+    }
+
+    assert_debug::<Field<Id>>();
+}
