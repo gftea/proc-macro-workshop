@@ -123,14 +123,24 @@ impl Parse for Seq {
         input.parse::<syn::Token![in]>()?;
         let start: usize = input.parse::<syn::LitInt>()?.base10_parse()?;
         input.parse::<syn::Token![..]>()?;
+        let inclusive = if input.peek(syn::Token![=]) {
+            input.parse::<syn::Token![=]>()?;
+            true
+        } else {
+            false
+        };
         let end: usize = input.parse::<syn::LitInt>()?.base10_parse()?;
+        let range = if inclusive {
+            start..end + 1
+        } else {
+            start..end
+        };
 
         let inner;
         braced!(inner in input);
 
         // let code_block = inner.parse::<proc_macro2::TokenStream>()?;
         let mut code_block = proc_macro2::TokenStream::new();
-        let range = start..end;
         for i in range.clone() {
             let mut repeat = false;
             let mut tks = proc_macro2::TokenStream::new();
@@ -151,7 +161,7 @@ impl Parse for Seq {
                 break;
             }
         }
-        eprintln!("code_block: {:#?}", code_block);
+        // eprintln!("code_block: {:#?}", code_block);
         // consume the buffer
         let _: proc_macro2::TokenStream = inner.parse()?;
 
@@ -168,10 +178,10 @@ impl Parse for Seq {
 pub fn seq(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as Seq);
 
-    eprintln!("INPUT: {:#?}", input);
+    // eprintln!("INPUT: {:#?}", input);
 
     let code_block = input.code_block;
-    eprintln!("OUTPUT: {:#?}", code_block);
+    // eprintln!("OUTPUT: {:#?}", code_block);
     let expanded = quote! {
         #code_block
     };
