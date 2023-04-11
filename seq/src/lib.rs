@@ -1,31 +1,95 @@
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{braced, parse::Parse, parse_macro_input, punctuated::Punctuated};
+use syn::{
+    braced,
+    parse::{Parse, ParseBuffer},
+    parse_macro_input,
+};
 
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Seq {
     ident: syn::Ident,
-    start: syn::LitInt,
-    end: syn::LitInt,
+    start: usize,
+    end: usize,
+    code_block: proc_macro2::TokenStream,
+}
 
-    code_block: Punctuated<proc_macro2::TokenStream, syn::Token![;]>,
+fn interpolate_codeblock(
+    code_block: ParseBuffer,
+    ident: &syn::Ident,
+    i: usize,
+    tokens: &mut proc_macro2::TokenStream,
+) -> syn::Result<()> {
+    while !code_block.is_empty() {
+        if code_block.peek(syn::Ident) {
+            let idt: syn::Ident = code_block.parse()?;
+
+            if code_block.peek(syn::Token![~]) && code_block.peek2(syn::Ident) {
+                code_block.parse::<syn::Token![~]>()?;
+                let idt2: syn::Ident = code_block.parse()?;
+                if &idt2 == ident {
+                    // construct new ident with i
+                    let new_idt = syn::Ident::new(&format!("{}{}", idt, i), idt.span());
+                    new_idt.to_tokens(tokens);
+                } else {
+                    eprintln!("error ident sequence: {}~{}", idt, idt2);
+                    // unrecognized ident sequence, just remove the '~' and paste the two idents
+                    let new_idt = syn::Ident::new(&format!("{}{}", idt, idt2), idt.span());
+                    new_idt.to_tokens(tokens);
+                }
+            } else {                
+                if &idt == ident {
+                    // replace with value of i
+                    let lit_value = syn::LitInt::new(&format!("{}", i), idt.span());
+                    lit_value.to_tokens(tokens);
+                } else {
+                    idt.to_tokens(tokens);
+                }
+            }
+        } else {
+            // if it is a Group, recurse
+            if code_block.peek(syn::token::Brace) {
+                let ahead = code_block.fork();
+                let inner;
+                braced!(inner in ahead);
+
+                let mut new_tokens = proc_macro2::TokenStream::new();
+                interpolate_codeblock(inner, ident, i, &mut new_tokens)?;
+                // reconstruct the group                
+                let g: proc_macro2::Group = code_block.parse()?;
+                let mut new_group = proc_macro2::Group::new(g.delimiter(), new_tokens);
+                new_group.set_span(g.span());
+                new_group.to_tokens(tokens);
+            } else {
+                let tt: proc_macro2::TokenTree = code_block.parse()?;
+                tt.to_tokens(tokens);
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Parse for Seq {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
         input.parse::<syn::Token![in]>()?;
-        let start: syn::LitInt = input.parse()?;
+        let start: usize = input.parse::<syn::LitInt>()?.base10_parse()?;
         input.parse::<syn::Token![..]>()?;
-        let end: syn::LitInt = input.parse()?;
+        let end: usize = input.parse::<syn::LitInt>()?.base10_parse()?;
 
-        let code_block;
-        braced!(code_block in input);
+        let inner;
+        braced!(inner in input);
+        
+        
+        // let code_block = inner.parse::<proc_macro2::TokenStream>()?;
+        let mut code_block = proc_macro2::TokenStream::new();
+        
+        let i = 1;
+        interpolate_codeblock(inner, &ident, i, &mut code_block)?;
+        eprintln!("code_block: {:#?}", code_block);
+        
 
-        let code_block = code_block.parse_terminated::<proc_macro2::TokenStream, syn::Token![;]>(
-            proc_macro2::TokenStream::parse,
-        )?;
         Ok(Seq {
             ident,
             start,
@@ -35,55 +99,16 @@ impl Parse for Seq {
     }
 }
 
-fn update_codeblock(
-    code_block: proc_macro2::TokenStream,
-    ident: &syn::Ident,
-    i: usize,
-) -> proc_macro2::TokenStream {
-    let mut new_code_block = proc_macro2::TokenStream::new();
-    for cb in code_block {
-        match cb {
-            proc_macro2::TokenTree::Group(grp) => {
-                let new_grp = update_codeblock(grp.stream(), ident, i);
-                let mut new_grp = proc_macro2::Group::new(grp.delimiter(), new_grp);
-                // retain the orignal span
-                new_grp.set_span(grp.span());
-                new_code_block.extend(new_grp.to_token_stream());
-            }
-            proc_macro2::TokenTree::Ident(idt) => {
-                if &idt == ident {
-                    // retrain the orignal span
-                    let lit_value = syn::LitInt::new(&i.to_string(), idt.span());
-                    new_code_block.extend(lit_value.to_token_stream());
-                } else {
-                    new_code_block.extend(idt.to_token_stream());
-                }
-            }
-            proc_macro2::TokenTree::Punct(pct) => new_code_block.extend(pct.to_token_stream()),
-            proc_macro2::TokenTree::Literal(lit) => new_code_block.extend(lit.to_token_stream()),
-        }
-    }
-    new_code_block
-}
-
 #[proc_macro]
 pub fn seq(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as Seq);
-    // eprintln!("INPUT: {:#?}", input);
 
-    let start = input.start.base10_parse::<usize>().unwrap();
-    let end = input.end.base10_parse::<usize>().unwrap();
-
-    let mut code_blocks = Vec::new();
-    for i in start..end {
-        let code_block =
-            update_codeblock(input.code_block.clone().to_token_stream(), &input.ident, i);
-        code_blocks.push(code_block);
-    }
-    // eprintln!("OUTPUT: {:#?}", code_blocks);
-
+    eprintln!("INPUT: {:#?}", input);
+ 
+    let code_block = input.code_block;
+    eprintln!("OUTPUT: {:#?}", code_block);
     let expanded = quote! {
-        #(#code_blocks)*
+        #code_block
     };
     expanded.into()
 }
