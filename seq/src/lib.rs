@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
@@ -20,6 +22,8 @@ fn interpolate_codeblock(
     ident: &syn::Ident,
     i: usize,
     tokens: &mut proc_macro2::TokenStream,
+    range: Range<usize>,
+    repeat: &mut bool,
 ) -> syn::Result<()> {
     while !code_block.is_empty() {
         if code_block.peek(syn::Ident) {
@@ -29,7 +33,8 @@ fn interpolate_codeblock(
                 code_block.parse::<syn::Token![~]>()?;
                 let idt2: syn::Ident = code_block.parse()?;
                 if &idt2 == ident {
-                    // construct new ident with i
+                    *repeat = true;
+                    // replace with new ident
                     let new_idt = syn::Ident::new(&format!("{}{}", idt, i), idt.span());
                     new_idt.to_tokens(tokens);
                 } else {
@@ -40,6 +45,7 @@ fn interpolate_codeblock(
                 }
             } else {
                 if &idt == ident {
+                    *repeat = true;
                     // replace with value of i
                     let lit_value = syn::LitInt::new(&format!("{}", i), idt.span());
                     lit_value.to_tokens(tokens);
@@ -47,6 +53,35 @@ fn interpolate_codeblock(
                     idt.to_tokens(tokens);
                 }
             }
+        } else if code_block.peek(syn::Token![#]) && code_block.peek2(syn::token::Paren) {
+            // parse and discard the '#'
+            code_block.parse::<syn::Token![#]>()?;
+
+            let ahead = code_block.fork();
+            let inner;
+            parenthesized!(inner in ahead);
+
+            // parse and discard parenthesized group
+            code_block.parse::<proc_macro2::Group>()?;
+
+            let mut new_tokens = proc_macro2::TokenStream::new();
+            for i in range.clone() {
+                let mut repeat = false;
+                interpolate_codeblock(
+                    inner.fork(),
+                    ident,
+                    i,
+                    &mut new_tokens,
+                    range.clone(),
+                    &mut repeat,
+                )?;
+                if !repeat {
+                    break;
+                }
+            }
+            // parse and discard '*'
+            code_block.parse::<syn::Token![*]>()?;
+            new_tokens.to_tokens(tokens);
         } else {
             // if it is a Group, recurse
             if code_block.peek(syn::token::Brace)
@@ -66,7 +101,7 @@ fn interpolate_codeblock(
                 }
 
                 let mut new_tokens = proc_macro2::TokenStream::new();
-                interpolate_codeblock(inner, ident, i, &mut new_tokens)?;
+                interpolate_codeblock(inner, ident, i, &mut new_tokens, range.clone(), repeat)?;
                 // consume the existing group in parse buffer,
                 // and construct new group to token stream
                 let g: proc_macro2::Group = code_block.parse()?;
@@ -95,8 +130,26 @@ impl Parse for Seq {
 
         // let code_block = inner.parse::<proc_macro2::TokenStream>()?;
         let mut code_block = proc_macro2::TokenStream::new();
-        for i in start..end {
-            interpolate_codeblock(inner.fork(), &ident, i, &mut code_block)?;
+        let range = start..end;
+        for i in range.clone() {
+            let mut repeat = false;
+            let mut tks = proc_macro2::TokenStream::new();
+            interpolate_codeblock(
+                inner.fork(),
+                &ident,
+                i,
+                &mut tks,
+                range.clone(),
+                &mut repeat,
+            )?;
+
+            // if the first scan of the code block  contain the repeated ident pattern
+            // we need to scan the code block again to replace the ident with the value of i
+            // otherwise, we only need to do once
+            code_block.extend(tks);
+            if !repeat {
+                break;
+            }
         }
         eprintln!("code_block: {:#?}", code_block);
         // consume the buffer
