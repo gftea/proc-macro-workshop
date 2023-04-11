@@ -66,7 +66,8 @@ fn interpolate_codeblock(
 
             let mut new_tokens = proc_macro2::TokenStream::new();
             for i in range.clone() {
-                let mut repeat = false;
+                // always repeat sections in parenthesized groups '#( ... )*'
+                let mut repeat = true;
                 interpolate_codeblock(
                     inner.fork(),
                     ident,
@@ -75,9 +76,9 @@ fn interpolate_codeblock(
                     range.clone(),
                     &mut repeat,
                 )?;
-                if !repeat {
-                    break;
-                }
+                // if !repeat {
+                //     break;
+                // }
             }
             // parse and discard '*'
             code_block.parse::<syn::Token![*]>()?;
