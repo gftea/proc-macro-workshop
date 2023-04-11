@@ -24,7 +24,7 @@ fn f0() -> u64 {
 }
 
 fn main() {
-    // let sum = f0() + f1() + f2() + f3();
+    let sum = f0() + f1() + f2() + f3();
 
-    // assert_eq!(sum, 100 + 2 + 4 + 6);
+    assert_eq!(sum, 100 + 2 + 4 + 6);
 }

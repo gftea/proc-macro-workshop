@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    braced,
+    braced, bracketed, parenthesized,
     parse::{Parse, ParseBuffer},
     parse_macro_input,
 };
@@ -38,7 +38,7 @@ fn interpolate_codeblock(
                     let new_idt = syn::Ident::new(&format!("{}{}", idt, idt2), idt.span());
                     new_idt.to_tokens(tokens);
                 }
-            } else {                
+            } else {
                 if &idt == ident {
                     // replace with value of i
                     let lit_value = syn::LitInt::new(&format!("{}", i), idt.span());
@@ -49,14 +49,26 @@ fn interpolate_codeblock(
             }
         } else {
             // if it is a Group, recurse
-            if code_block.peek(syn::token::Brace) {
+            if code_block.peek(syn::token::Brace)
+                || code_block.peek(syn::token::Bracket)
+                || code_block.peek(syn::token::Paren)
+            {
                 let ahead = code_block.fork();
                 let inner;
-                braced!(inner in ahead);
+                if code_block.peek(syn::token::Brace) {
+                    braced!(inner in ahead);
+                } else if code_block.peek(syn::token::Bracket) {
+                    bracketed!(inner in ahead);
+                } else if code_block.peek(syn::token::Paren) {
+                    parenthesized!(inner in ahead);
+                } else {
+                    unreachable!();
+                }
 
                 let mut new_tokens = proc_macro2::TokenStream::new();
                 interpolate_codeblock(inner, ident, i, &mut new_tokens)?;
-                // reconstruct the group                
+                // consume the existing group in parse buffer,
+                // and construct new group to token stream
                 let g: proc_macro2::Group = code_block.parse()?;
                 let mut new_group = proc_macro2::Group::new(g.delimiter(), new_tokens);
                 new_group.set_span(g.span());
@@ -80,15 +92,15 @@ impl Parse for Seq {
 
         let inner;
         braced!(inner in input);
-        
-        
+
         // let code_block = inner.parse::<proc_macro2::TokenStream>()?;
         let mut code_block = proc_macro2::TokenStream::new();
-        
-        let i = 1;
-        interpolate_codeblock(inner, &ident, i, &mut code_block)?;
+        for i in start..end {
+            interpolate_codeblock(inner.fork(), &ident, i, &mut code_block)?;
+        }
         eprintln!("code_block: {:#?}", code_block);
-        
+        // consume the buffer
+        let _: proc_macro2::TokenStream = inner.parse()?;
 
         Ok(Seq {
             ident,
@@ -104,7 +116,7 @@ pub fn seq(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as Seq);
 
     eprintln!("INPUT: {:#?}", input);
- 
+
     let code_block = input.code_block;
     eprintln!("OUTPUT: {:#?}", code_block);
     let expanded = quote! {
