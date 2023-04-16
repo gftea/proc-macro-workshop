@@ -9,3 +9,6 @@ proc-macro = true
 
 [dependencies]
 # TODO
+proc-macro2 = { version = "1" }
+quote = { version = "1" }
+syn = { version = "1", features = ["full", "extra-traits"] }
