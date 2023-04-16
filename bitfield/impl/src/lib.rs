@@ -75,18 +75,18 @@ pub fn bitfield(args: TokenStream, input: TokenStream) -> TokenStream {
                 }
             }
             
-            #(pub fn #get_field_names(&self) -> u64 {
+            #(pub fn #get_field_names(&self) -> <#field_types as Specifier>::InnerType {
                 let bit_seq = self.get_bit_seq(#offsets, #offsets + <#field_types as Specifier>::BITS);
 
                 let mut value = 0u64;
                 for (i, bit) in bit_seq.iter().enumerate() {
                     value |= (*bit as u64) << i;    
                 }
-                value
+                value as <#field_types as Specifier>::InnerType
             })*
 
-            #(pub fn #set_field_names(&mut self, value: u64) {
-                self.set_bit_seq(value, #offsets, #offsets + <#field_types as Specifier>::BITS);
+            #(pub fn #set_field_names(&mut self, value: <#field_types as Specifier>::InnerType) {
+                self.set_bit_seq(value as u64, #offsets, #offsets + <#field_types as Specifier>::BITS);
             })*
 
         }
@@ -104,12 +104,15 @@ pub fn bitspec(input: TokenStream) -> TokenStream {
     let spec = parse_macro_input!(input as BitFieldSpec);
     let name = spec.ident;
     let width = spec.width;
+    let ty = spec.ty;
     quote!(
         // uninhabited type
         pub enum #name {}
 
         impl Specifier for #name {
             const BITS: usize = #width;
+            type InnerType = #ty;
+
         }
     )
     .into()
@@ -118,6 +121,7 @@ pub fn bitspec(input: TokenStream) -> TokenStream {
 struct BitFieldSpec {
     ident: syn::Ident,
     width: syn::LitInt,
+    ty: syn::Type,
 }
 
 impl Parse for BitFieldSpec {
@@ -125,8 +129,9 @@ impl Parse for BitFieldSpec {
         let ident = input.parse::<syn::Ident>()?;
         input.parse::<syn::Token![,]>()?;
         let width = input.parse::<syn::LitInt>()?;
-
-        Ok(Self { ident, width })
+        input.parse::<syn::Token![,]>()?;
+        let ty = input.parse::<syn::Type>()?;
+        Ok(Self { ident, width, ty })
     }
 }
 
