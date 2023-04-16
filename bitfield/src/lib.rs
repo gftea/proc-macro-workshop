@@ -16,8 +16,10 @@ pub use bitfield_impl::*;
 // TODO other things
 #[macro_use]
 mod checks;
+// only export the MultipleOf8Bits type alias so that it can be referenced in user code
+// the require_multiple_of_eight! macro is inserted into the generated code, which emit the codes referencing the type alias
 pub use checks::MultipleOf8Bits;
-// pub use checks::TotalSizeIsMultipleOfEightBits;
+
 pub trait Specifier {
     const BITS: usize;
 }
