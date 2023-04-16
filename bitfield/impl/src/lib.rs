@@ -1,4 +1,5 @@
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::{quote, format_ident};
 use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type};
 // use std::marker::PhantomData;
@@ -104,8 +105,15 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
     match input.data {
         syn::Data::Enum(data) => {
             // assume number of variants is power of 2
-            let bits = data.variants.len().trailing_zeros() as usize;
-            
+            let bits = data.variants.len().trailing_zeros() as usize;            
+            let num_variants = data.variants.len() as u64;
+            let mask = 0x80_00_00_00_00_00_00_00u64 >> data.variants.len().leading_zeros();
+            if mask != num_variants {
+                return syn::Error::new(
+                    Span::call_site(),
+                    "BitfieldSpecifier expected a number of variants which is a power of 2"
+                ).to_compile_error().into();
+            }
             let variants = data.variants;
             
             let discriminant_idents = variants.iter().map(|variant| {
@@ -119,6 +127,8 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
                 impl std::convert::TryFrom<u64> for #name {
                     type Error = ();
                     fn try_from(value: u64) -> Result<Self, Self::Error> {
+                        // convert enum variants to u64 constants first, 
+                        // so that we can use them in the match expression
                         #(
                             const #discriminant_idents: u64 = #name::#variants as u64;
                         )*
