@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote, format_ident, quote_spanned};
-use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type, Stmt};
+use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type};
 // use std::marker::PhantomData;
 
 #[proc_macro_attribute]
@@ -118,9 +118,9 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
             
             let discriminant_idents = variants.iter().map(|variant| {
                 let ident = &variant.ident;
-                format_ident!("{}_value", ident)
+                format_ident!("{}_VALUE", ident.to_string().to_uppercase())
             }).collect::<Vec<_>>();
-            eprintln!("{:?}", discriminant_idents);
+            // eprintln!("{:?}", discriminant_idents);
             let variant_idents = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
 
             let discriminant_checks_tokens = variant_idents.iter().map(|ident| {
