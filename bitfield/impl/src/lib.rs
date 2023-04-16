@@ -82,16 +82,80 @@ pub fn bitfield(args: TokenStream, input: TokenStream) -> TokenStream {
                 for (i, bit) in bit_seq.iter().enumerate() {
                     value |= (*bit as u64) << i;    
                 }
-                value as <#field_types as Specifier>::InnerType
+                <#field_types as Specifier>::from_u64(value)
+                
             })*
 
             #(pub fn #set_field_names(&mut self, value: <#field_types as Specifier>::InnerType) {
-                self.set_bit_seq(value as u64, #offsets, #offsets + <#field_types as Specifier>::BITS);
+                let value = <#field_types as Specifier>::to_u64(value);
+                self.set_bit_seq(value, #offsets, #offsets + <#field_types as Specifier>::BITS);
             })*
 
         }
     )
     .into()
+}
+
+
+#[proc_macro_derive(BitfieldSpecifier)]
+pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let name = input.ident;
+    match input.data {
+        syn::Data::Enum(data) => {
+            // assume number of variants is power of 2
+            let bits = data.variants.len().trailing_zeros() as usize;
+            
+            let variants = data.variants;
+            let discriminants = variants.iter().map(|variant| {
+                let exp = variant.discriminant.as_ref().unwrap().1.clone();
+                match exp {
+                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(lit), .. }) => lit,
+                    _ => panic!("BitfieldSpecifier can only be derived for enums with integer discriminants"),
+                }
+            }).collect::<Vec<_>>();
+            let variants = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
+           return  quote!(
+                impl std::convert::TryFrom<u64> for #name {
+                    type Error = ();
+                    fn try_from(value: u64) -> Result<Self, Self::Error> {
+                        match value {
+                            #(
+                                #discriminants => Ok(#name::#variants),
+                            )*
+                            _ => Err(()),
+                        }
+                    }
+                }
+                impl std::convert::TryInto<u64> for #name {
+                    type Error = ();
+                    fn try_into(self) -> Result<u64, Self::Error> {
+                        match self {
+                            #(
+                                #name::#variants => Ok(#discriminants),
+                            )*
+                        }
+                    }
+                }
+
+                impl Specifier for #name {
+                    const BITS: usize = #bits;
+                    type InnerType = #name;
+
+                    fn to_u64(value: Self::InnerType) -> u64 {
+                        value.try_into().unwrap()
+                    }
+                    fn from_u64(value: u64) -> Self::InnerType {
+                        Self::InnerType::try_from(value).unwrap()
+                    }
+
+                }
+            ).into();
+
+
+        }
+        _ => panic!("BitfieldSpecifier can only be derived for enums"),
+    }   
 }
 
 /// The `bitspec` macro is used to define a bit specification.
@@ -112,7 +176,13 @@ pub fn bitspec(input: TokenStream) -> TokenStream {
         impl Specifier for #name {
             const BITS: usize = #width;
             type InnerType = #ty;
+            fn to_u64(value: Self::InnerType) -> u64 {
+                value as u64
+            }
 
+            fn from_u64(value: u64) -> Self::InnerType {
+                value as Self::InnerType
+            }
         }
     )
     .into()

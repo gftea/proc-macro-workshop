@@ -23,6 +23,9 @@ pub use checks::MultipleOf8Bits;
 pub trait Specifier {
     const BITS: usize;
     type InnerType;
+
+    fn to_u64(value: Self::InnerType) -> u64;
+    fn from_u64(value: u64) -> Self::InnerType;
 }
 
 bitspec!(B1, 1, u8);
@@ -89,3 +92,23 @@ bitspec!(B61, 61, u64);
 bitspec!(B62, 62, u64);
 bitspec!(B63, 63, u64);
 bitspec!(B64, 64, u64);
+
+impl Specifier for bool {
+    const BITS: usize = 1;
+    type InnerType = bool;
+
+    fn to_u64(value: Self::InnerType) -> u64 {
+        match value {
+            false => 0,
+            true => 1,
+        }
+    }
+
+    fn from_u64(value: u64) -> Self::InnerType {
+        match value {
+            0 => false,
+            1 => true,
+            _ => panic!("bool can only be 0 or 1"),
+        }
+    }
+}
