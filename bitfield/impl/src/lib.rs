@@ -107,21 +107,24 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
             let bits = data.variants.len().trailing_zeros() as usize;
             
             let variants = data.variants;
-            let discriminants = variants.iter().map(|variant| {
-                let exp = variant.discriminant.as_ref().unwrap().1.clone();
-                match exp {
-                    syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(lit), .. }) => lit,
-                    _ => panic!("BitfieldSpecifier can only be derived for enums with integer discriminants"),
-                }
+            
+            let discriminant_idents = variants.iter().map(|variant| {
+                let ident = &variant.ident;
+                format_ident!("{}_value", ident)
             }).collect::<Vec<_>>();
+            eprintln!("{:?}", discriminant_idents);
             let variants = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
+
            return  quote!(
                 impl std::convert::TryFrom<u64> for #name {
                     type Error = ();
                     fn try_from(value: u64) -> Result<Self, Self::Error> {
+                        #(
+                            const #discriminant_idents: u64 = #name::#variants as u64;
+                        )*
                         match value {
                             #(
-                                #discriminants => Ok(#name::#variants),
+                                #discriminant_idents => Ok(#name::#variants),
                             )*
                             _ => Err(()),
                         }
@@ -130,11 +133,8 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
                 impl std::convert::TryInto<u64> for #name {
                     type Error = ();
                     fn try_into(self) -> Result<u64, Self::Error> {
-                        match self {
-                            #(
-                                #name::#variants => Ok(#discriminants),
-                            )*
-                        }
+                        let v = self as u64;
+                        Ok(v)
                     }
                 }
 
@@ -143,7 +143,8 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
                     type InnerType = #name;
 
                     fn to_u64(value: Self::InnerType) -> u64 {
-                        value.try_into().unwrap()
+                        let value = value as u64;
+                        value
                     }
                     fn from_u64(value: u64) -> Self::InnerType {
                         Self::InnerType::try_from(value).unwrap()
