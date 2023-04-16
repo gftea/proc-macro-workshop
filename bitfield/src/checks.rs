@@ -52,3 +52,32 @@ pub trait TotalSizeIsMultipleOfEightBits {
 impl TotalSizeIsMultipleOfEightBits for ZeroMod8 {
     type Check = ();
 }
+
+#[macro_export]
+macro_rules! require_discriminant_in_range {
+    ($discriminant: expr, $max: expr) => {
+        const _: DiscriminantInRangeCheck<[(); ($discriminant < $max) as usize]> = ();
+    };
+}
+
+pub type DiscriminantInRangeCheck<T> =
+    <<T as EnumDiscriminant>::Marker as DiscriminantInRange>::Check;
+
+pub trait EnumDiscriminant {
+    type Marker;
+}
+pub trait DiscriminantInRange {
+    type Check;
+}
+pub enum True {}
+pub enum False {}
+
+impl EnumDiscriminant for [(); 1] {
+    type Marker = True;
+}
+impl EnumDiscriminant for [(); 0] {
+    type Marker = False;
+}
+impl DiscriminantInRange for True {
+    type Check = ();
+}

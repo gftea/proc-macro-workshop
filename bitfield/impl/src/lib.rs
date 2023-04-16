@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use quote::{quote, format_ident};
-use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type};
+use quote::{quote, format_ident, quote_spanned};
+use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type, Stmt};
 // use std::marker::PhantomData;
 
 #[proc_macro_attribute]
@@ -121,20 +121,30 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
                 format_ident!("{}_value", ident)
             }).collect::<Vec<_>>();
             eprintln!("{:?}", discriminant_idents);
-            let variants = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
+            let variant_idents = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
 
+            let discriminant_checks_tokens = variant_idents.iter().map(|ident| {
+                let check_stmt = quote_spanned!(Span::call_site().located_at(ident.span())=>
+                    const _: DiscriminantInRangeCheck<[(); ( (#name::#ident as u64) < #num_variants ) as usize]> = (); 
+                );
+                check_stmt
+           
+            }).collect::<Vec<_>>();
+           
            return  quote!(
+                #( #discriminant_checks_tokens )*
+
                 impl std::convert::TryFrom<u64> for #name {
                     type Error = ();
                     fn try_from(value: u64) -> Result<Self, Self::Error> {
                         // convert enum variants to u64 constants first, 
                         // so that we can use them in the match expression
                         #(
-                            const #discriminant_idents: u64 = #name::#variants as u64;
+                            const #discriminant_idents: u64 = #name::#variant_idents as u64;
                         )*
                         match value {
                             #(
-                                #discriminant_idents => Ok(#name::#variants),
+                                #discriminant_idents => Ok(#name::#variant_idents),
                             )*
                             _ => Err(()),
                         }
