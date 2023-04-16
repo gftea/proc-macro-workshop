@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use proc_macro2::Span;
+use proc_macro2::{Span, Literal};
 use quote::{quote, format_ident, quote_spanned};
 use syn::{parse::Parse, parse_macro_input, parse_quote, Expr, Type};
 // use std::marker::PhantomData;
@@ -14,11 +14,34 @@ pub fn bitfield(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut field_types = Vec::new();
     let mut offsets = Vec::new();
     let mut total_bits = quote!(0usize);
+
+    let mut bits_check_tokens = proc_macro2::TokenStream::new();
     for field in item_struct.fields {
         let ty = &field.ty;
-        
+
+        // get expected bit width
+        let mut expected_bits = None;
+        for attr in field.attrs {
+            if attr.path.is_ident("bits") {
+                let meta = attr.parse_meta().unwrap();            
+                if let syn::Meta::NameValue(meta_name_value) = meta {
+                    if let syn::Lit::Int(lit_int) = meta_name_value.lit {
+                       eprintln!("bit_width: {}", lit_int);
+                       expected_bits = Some(lit_int);
+                    }
+                }
+            }
+        }
+
         if let Type::Path(ty_path) = ty {
-            let bit_width: Expr = parse_quote!(<#ty_path as Specifier>::BITS);            
+            let bit_width: Expr = parse_quote!(<#ty_path as Specifier>::BITS);  
+            if let Some(expected_bits) = expected_bits {
+                bits_check_tokens.extend(quote_spanned! {Span::call_site().located_at(expected_bits.span())=>
+                    
+                    const _: [(); #expected_bits] = [(); #bit_width];
+                });
+            }
+
             offsets.push(total_bits.clone());
             total_bits.extend(quote!(+ #bit_width));
         }
@@ -35,7 +58,7 @@ pub fn bitfield(args: TokenStream, input: TokenStream) -> TokenStream {
 
   
     quote!(
-        // use bitfield::checks::*;
+        #bits_check_tokens
 
         const TOTAL_BITS_MOD8: usize = (#total_bits) % 8; 
         const ARRAY_SIZE: usize = (#total_bits) / 8; 
@@ -118,7 +141,7 @@ pub fn bitfield_specifier(input: TokenStream) -> TokenStream {
             
             let discriminant_idents = variants.iter().map(|variant| {
                 let ident = &variant.ident;
-                format_ident!("{}_VALUE", ident.to_string().to_uppercase())
+                format_ident!("__{}", ident.to_string().to_uppercase())
             }).collect::<Vec<_>>();
             // eprintln!("{:?}", discriminant_idents);
             let variant_idents = variants.iter().map(|variant| variant.ident.clone()).collect::<Vec<_>>();
@@ -225,5 +248,3 @@ impl Parse for BitFieldSpec {
         Ok(Self { ident, width, ty })
     }
 }
-
-
